@@ -25,7 +25,7 @@ AWS SSO (IAM Identity Center) 配下の複数アカウントのコストデー�
 
 ## 前提条件
 
-- [mise](https://mise.jdx.dev/) — Python 3.12 と uv を自動管理（`mise.toml` で定義済み）
+- [mise](https://mise.jdx.dev/) で Python 3.12 と uv を自動管理（`mise.toml` で定義済み）
 - AWS SSO (IAM Identity Center) へのアクセス権
 - `~/.aws/config` に `[sso-session ...]` セクションが設定されていること
 
