@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AWS Cost Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- Noise texture overlay -->
+  <div class="noise-overlay" aria-hidden="true"></div>
+
+  <header>
+    <div class="header-left">
+      <div class="logo-mark" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <rect x="2" y="14" width="6" height="12" rx="1" fill="var(--amber)"/>
+          <rect x="11" y="8" width="6" height="18" rx="1" fill="var(--amber)" opacity="0.7"/>
+          <rect x="20" y="2" width="6" height="24" rx="1" fill="var(--amber)" opacity="0.4"/>
+        </svg>
+      </div>
+      <div>
+        <h1>AWS Cost Console</h1>
+        <p class="header-sub">Multi-Account Cost Intelligence</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <button type="button" class="btn btn-sso" id="sso-login-btn" title="SSO Login">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M7 1v4M7 9v4M1 7h4M9 7h4"/>
+          <circle cx="7" cy="7" r="2"/>
+        </svg>
+        SSO Login
+      </button>
+      <div class="status-indicator">
+        <span class="status-dot" id="status-dot"></span>
+        <p id="status" class="status">Connecting...</p>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="cost">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M2 14V6l4-4v12M6 14V4l4 2v8M10 14V6l4 2v6"/>
+      </svg>
+      Cost Explorer
+    </button>
+    <button class="tab" data-tab="accounts">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="2" y="2" width="5" height="5" rx="1"/>
+        <rect x="9" y="2" width="5" height="5" rx="1"/>
+        <rect x="2" y="9" width="5" height="5" rx="1"/>
+        <rect x="9" y="9" width="5" height="5" rx="1"/>
+      </svg>
+      Accounts
+    </button>
+    <button class="tab" data-tab="config">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="8" cy="8" r="3"/>
+        <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"/>
+      </svg>
+      Config
+    </button>
+    <div class="tab-filler"></div>
+  </nav>
+
+  <main>
+    <!-- Cost Explorer Tab -->
+    <section id="cost-tab" class="tab-content active">
+      <div class="cost-controls">
+        <div class="controls-row">
+          <div class="control-group">
+            <label>Period Start</label>
+            <div class="date-picker">
+              <select id="cost-start-year" class="date-select"></select>
+              <select id="cost-start-month" class="date-select"></select>
+            </div>
+          </div>
+          <div class="control-group">
+            <label>Period End</label>
+            <div class="date-picker">
+              <select id="cost-end-year" class="date-select"></select>
+              <select id="cost-end-month" class="date-select"></select>
+            </div>
+          </div>
+          <div class="control-group">
+            <label for="cost-granularity">Granularity</label>
+            <select id="cost-granularity">
+              <option value="MONTHLY" selected>Monthly</option>
+              <option value="DAILY">Daily</option>
+            </select>
+          </div>
+          <div class="control-group metric-group">
+            <label>Cost Metric</label>
+            <div class="metric-select-wrap">
+              <select id="cost-metric">
+                <option value="UnblendedCost" selected>Unblended Cost / 非ブレンドコスト</option>
+                <option value="AmortizedCost">Amortized Cost / 償却コスト</option>
+                <option value="BlendedCost">Blended Cost / ブレンドコスト</option>
+                <option value="NetUnblendedCost">Net Unblended Cost / 非ブレンド純コスト</option>
+                <option value="NetAmortizedCost">Net Amortized Cost / 償却純コスト</option>
+              </select>
+              <button type="button" class="metric-help-btn" id="metric-help-btn" title="Cost metrics explained">?</button>
+            </div>
+          </div>
+          <div class="control-group">
+            <label>Account Filter</label>
+            <div class="multi-select" id="account-select">
+              <button type="button" class="multi-select-toggle" id="account-select-toggle">All Accounts</button>
+              <div class="multi-select-dropdown hidden" id="account-select-dropdown">
+                <div class="multi-select-actions">
+                  <button type="button" class="btn-link" id="account-select-all">Select All</button>
+                  <button type="button" class="btn-link" id="account-deselect-all">Deselect All</button>
+                </div>
+                <input type="text" class="multi-select-search" id="account-select-search" placeholder="Filter accounts..." />
+                <div class="multi-select-options" id="account-select-options"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="controls-actions">
+          <button id="cost-fetch" class="btn btn-primary">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M1 7h12M8 2l5 5-5 5"/>
+            </svg>
+            Fetch Data
+          </button>
+          <button id="cost-clear-cache" class="btn btn-ghost">Clear Cache</button>
+        </div>
+      </div>
+
+      <div id="cost-loading" class="loading hidden">
+        <div class="loading-bar">
+          <div class="loading-bar-fill"></div>
+        </div>
+        <span id="cost-loading-text">Loading cost data...</span>
+      </div>
+
+      <!-- Summary cards -->
+      <div id="cost-summary" class="summary-cards hidden"></div>
+
+      <!-- Overview: account total cost line chart -->
+      <div class="chart-container hidden" id="overview-wrapper">
+        <div class="chart-header">
+          <h3>Account Cost Overview</h3>
+        </div>
+        <canvas id="overview-chart"></canvas>
+      </div>
+
+      <!-- Cost table -->
+      <div id="cost-table-section" class="hidden">
+        <div class="section-header">
+          <h3>Cost Breakdown</h3>
+        </div>
+        <div class="table-wrap">
+          <table id="cost-table">
+            <thead id="cost-table-head"></thead>
+            <tbody id="cost-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Account chart navigation -->
+      <div id="chart-nav" class="chart-nav hidden">
+        <div class="chart-nav-header">
+          <h3>Accounts</h3>
+          <input type="text" id="chart-nav-search" class="chart-nav-search" placeholder="Filter..." />
+        </div>
+        <div class="chart-nav-list" id="chart-nav-list"></div>
+      </div>
+
+      <!-- Per-account charts: service breakdown -->
+      <div id="account-charts" class="account-charts hidden"></div>
+    </section>
+
+    <!-- Accounts Tab -->
+    <section id="accounts-tab" class="tab-content">
+      <div class="section-header">
+        <h2>AWS Accounts <span id="account-count" class="badge"></span></h2>
+        <div class="controls">
+          <input type="text" id="search" placeholder="Search by name, ID, or email..." />
+          <label class="toggle-label">
+            <input type="checkbox" id="show-roles" />
+            <span class="toggle-switch"></span>
+            Show Roles
+          </label>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="accounts-table">
+          <thead>
+            <tr>
+              <th class="col-narrow">#</th>
+              <th>Account Name</th>
+              <th>Account ID</th>
+              <th>Email</th>
+              <th class="roles-col hidden">Roles</th>
+            </tr>
+          </thead>
+          <tbody id="accounts-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Config Tab -->
+    <section id="config-tab" class="tab-content">
+      <div class="section-header">
+        <h2>Settings</h2>
+      </div>
+
+      <div class="config-card">
+        <div class="config-card-header">
+          <h3>Default Account Selection</h3>
+          <p class="config-desc">Cost Explorer で Fetch Data を押したときにデフォルトで選択されるアカウントを設定します。未設定の場合は全アカウントが選択されます。</p>
+        </div>
+        <div class="config-card-body">
+          <div class="config-account-actions">
+            <button type="button" class="btn btn-ghost" id="config-select-all">Select All</button>
+            <button type="button" class="btn btn-ghost" id="config-deselect-all">Deselect All</button>
+            <input type="text" id="config-account-search" class="config-search" placeholder="Filter accounts..." />
+          </div>
+          <div class="config-account-list" id="config-account-list"></div>
+          <div class="config-card-footer">
+            <span class="config-selected-count" id="config-selected-count"></span>
+            <div class="config-footer-actions">
+              <button type="button" class="btn btn-ghost" id="config-reset">Reset to All</button>
+              <button type="button" class="btn btn-primary" id="config-save">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- SSO Login Modal -->
+  <div class="modal-overlay hidden" id="sso-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>SSO Login</h3>
+        <button type="button" class="modal-close" id="sso-modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="sso-step-start">
+          <p>AWS SSO にログインしてダッシュボードを利用します。</p>
+          <div class="sso-session-select hidden" id="sso-session-select-wrap">
+            <label for="sso-session-select">SSO Session</label>
+            <select id="sso-session-select"></select>
+          </div>
+          <button type="button" class="btn btn-primary btn-full" id="sso-start-btn">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M7 1v12M1 7h12"/>
+            </svg>
+            ブラウザで認証を開始
+          </button>
+        </div>
+        <div id="sso-step-waiting" class="hidden">
+          <p>ブラウザで認証を完了してください。</p>
+          <div class="sso-user-code">
+            <span class="sso-user-code-label">User Code</span>
+            <span class="sso-user-code-value" id="sso-user-code"></span>
+          </div>
+          <div class="sso-waiting-indicator">
+            <div class="sso-spinner"></div>
+            <span>認証完了を待っています...</span>
+          </div>
+          <a href="#" id="sso-open-link" class="btn btn-ghost btn-full" target="_blank" rel="noopener">認証ページを再度開く</a>
+        </div>
+        <div id="sso-step-done" class="hidden">
+          <div class="sso-success">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M8 12l3 3 5-5"/>
+            </svg>
+            <span>ログインに成功しました</span>
+          </div>
+        </div>
+        <div id="sso-step-error" class="hidden">
+          <div class="sso-error-msg" id="sso-error-msg"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Resource Drawer -->
+  <div class="drawer-overlay hidden" id="drawer-overlay"></div>
+  <div class="resource-drawer" id="resource-drawer">
+    <div class="drawer-header">
+      <div class="drawer-title">
+        <h3 id="drawer-title-text"></h3>
+        <span class="drawer-subtitle" id="drawer-subtitle"></span>
+      </div>
+      <div class="drawer-header-actions">
+        <button type="button" class="drawer-help-btn" id="drawer-help-btn" title="Pricing rules">?</button>
+        <button type="button" class="drawer-close" id="drawer-close">&times;</button>
+      </div>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </div>
+
+  <button type="button" class="back-to-top" id="back-to-top" title="Back to top">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M8 13V3M3 7l5-5 5 5"/>
+    </svg>
+  </button>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

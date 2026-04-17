@@ -1,0 +1,34 @@
+[project]
+name = "aws-cost-dashboard"
+version = "0.1.0"
+description = "AWS multi-account cost dashboard"
+requires-python = ">=3.12"
+dependencies = ["boto3>=1.35", "fastapi>=0.115", "uvicorn[standard]>=0.34"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.15.10"]
+
+[tool.rumdl]
+respect_gitignore = true
+exclude = [".claude/**"]
+disable = [
+    "MD013", # 行の長さは自由
+    "MD024", # 重複した見出しを許可
+    "MD025", # 複数のトップレベル見出しを許可
+    "MD033", # HTML タグを許可
+    "MD036", # 強調表示の過剰使用を許可
+    "MD041", # ファイルの最初の行を見出しにする必要なし
+]
+
+[tool.rumdl.MD009]
+strict = true

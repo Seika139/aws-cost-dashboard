@@ -1,0 +1,27 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[tasks.serve]
+description = "Start the dashboard server"
+run = "uv run uvicorn src.main:app --host 0.0.0.0 --port 8100"
+
+[tasks.dev]
+description = "Start with hot-reload"
+run = "uv run uvicorn src.main:app --host 0.0.0.0 --port 8100 --reload"
+
+[tasks.sso-login]
+description = "SSO login (opens browser for authentication)"
+run = "uv run python -c 'from src.auth import sso_login_interactive; sso_login_interactive()'"
+
+[tasks.test]
+description = "Run tests"
+run = "uv run pytest tests/ -v"
+
+[tasks.lint]
+description = "Run ruff linter"
+run = "uv run ruff check src/ tests/"
+
+[tasks.format]
+description = "Run ruff formatter"
+run = "uv run ruff format src/"
