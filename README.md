@@ -1,5 +1,14 @@
 # AWS Cost Dashboard
 
+<div align="center">
+  <a href="https://github.com/Seika139/aws-cost-dashboard/actions/workflows/uv-qualify.yml">
+    <img alt="Qualify Code" src="https://github.com/Seika139/aws-cost-dashboard/actions/workflows/uv-qualify.yml/badge.svg">
+  </a>
+  <a href="https://github.com/Seika139/aws-cost-dashboard/actions/workflows/lint-markdown.yml">
+    <img alt="Lint Markdown" src="https://github.com/Seika139/aws-cost-dashboard/actions/workflows/lint-markdown.yml/badge.svg">
+  </a>
+</div>
+
 AWS SSO (IAM Identity Center) 配下の複数アカウントのコストデータを横断的に可視化するローカルダッシュボード。
 
 ## 機能
