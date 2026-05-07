@@ -8,6 +8,9 @@ from pathlib import Path
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cache.db"
 
 
+PARTIAL_SNAPSHOT_TTL_MINUTES = 30
+
+
 def _get_conn() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
@@ -28,8 +31,15 @@ def _get_conn() -> sqlite3.Connection:
             UNIQUE(account_id, service, snapshot_date)
         )
     """)
+    _ensure_partial_column(conn)
     conn.commit()
     return conn
+
+
+def _ensure_partial_column(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(resource_snapshots)").fetchall()}
+    if "partial" not in cols:
+        conn.execute("ALTER TABLE resource_snapshots ADD COLUMN partial INTEGER NOT NULL DEFAULT 0")
 
 
 def get_cached(key: str, max_age_hours: int = 24) -> dict | None:
@@ -73,23 +83,49 @@ def clear_cache() -> int:
 
 
 def get_resource_snapshot(account_id: str, service: str, snapshot_date: str) -> list | None:
+    """日次スナップショットを取得。partial=1 のレコードは TTL 内のみ有効."""
+    entry = get_resource_snapshot_with_meta(account_id, service, snapshot_date)
+    if entry is None:
+        return None
+    return entry["data"]
+
+
+def get_resource_snapshot_with_meta(account_id: str, service: str, snapshot_date: str) -> dict | None:
+    """スナップショットとメタ情報（partial フラグ）をまとめて返す."""
     conn = _get_conn()
     row = conn.execute(
-        "SELECT data FROM resource_snapshots WHERE account_id = ? AND service = ? AND snapshot_date = ?",
+        "SELECT data, fetched_at, partial FROM resource_snapshots "
+        "WHERE account_id = ? AND service = ? AND snapshot_date = ?",
         (account_id, service, snapshot_date),
     ).fetchone()
     conn.close()
     if row is None:
         return None
-    return json.loads(row[0])
+    data, fetched_at_iso, partial = row
+    if partial:
+        fetched_at = datetime.fromisoformat(fetched_at_iso)
+        age_minutes = (datetime.now(timezone.utc) - fetched_at).total_seconds() / 60
+        if age_minutes > PARTIAL_SNAPSHOT_TTL_MINUTES:
+            return None
+    return {"data": json.loads(data), "partial": bool(partial), "fetchedAt": fetched_at_iso}
 
 
-def set_resource_snapshot(account_id: str, service: str, snapshot_date: str, data: list) -> None:
+def set_resource_snapshot(
+    account_id: str, service: str, snapshot_date: str, data: list, *, partial: bool = False
+) -> None:
     conn = _get_conn()
     conn.execute(
-        "INSERT OR REPLACE INTO resource_snapshots (account_id, service, snapshot_date, data, fetched_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (account_id, service, snapshot_date, json.dumps(data), datetime.now(timezone.utc).isoformat()),
+        "INSERT OR REPLACE INTO resource_snapshots "
+        "(account_id, service, snapshot_date, data, fetched_at, partial) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            account_id,
+            service,
+            snapshot_date,
+            json.dumps(data),
+            datetime.now(timezone.utc).isoformat(),
+            1 if partial else 0,
+        ),
     )
     conn.commit()
     conn.close()
@@ -98,9 +134,9 @@ def set_resource_snapshot(account_id: str, service: str, snapshot_date: str, dat
 def get_resource_history(account_id: str, service: str, days: int = 30) -> list[dict]:
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT snapshot_date, data, fetched_at FROM resource_snapshots "
+        "SELECT snapshot_date, data, fetched_at, partial FROM resource_snapshots "
         "WHERE account_id = ? AND service = ? ORDER BY snapshot_date DESC LIMIT ?",
         (account_id, service, days),
     ).fetchall()
     conn.close()
-    return [{"date": r[0], "data": json.loads(r[1]), "fetchedAt": r[2]} for r in rows]
+    return [{"date": r[0], "data": json.loads(r[1]), "fetchedAt": r[2], "partial": bool(r[3])} for r in rows]

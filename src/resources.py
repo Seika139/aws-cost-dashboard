@@ -5,10 +5,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
 
 from src.auth import get_role_credentials
-from src.cache import get_cached, get_resource_snapshot, set_cached, set_resource_snapshot
+from src.cache import get_cached, get_resource_snapshot_with_meta, set_cached, set_resource_snapshot
 from src.cost import _pick_cost_role, get_account_cost
 from src.pricing import enrich_resources_with_pricing
 
@@ -23,8 +24,15 @@ RESOURCE_SERVICES = {
 }
 
 
+_BOTO_CONFIG = Config(
+    retries={"max_attempts": 5, "mode": "standard"},
+    connect_timeout=10,
+    read_timeout=30,
+)
+
+
 def _make_client(service_name: str, creds: dict, region: str):
-    return boto3.client(service_name, region_name=region, **creds)
+    return boto3.client(service_name, region_name=region, config=_BOTO_CONFIG, **creds)
 
 
 # ============================================================
@@ -203,11 +211,19 @@ _GLOBAL_FETCHERS = {
 _MAX_REGION_WORKERS = 8
 
 
-def _fetch_regions_parallel(fetcher, creds: dict, regions: list[str], account_id: str, svc: str) -> list[dict]:
-    """複数リージョンを並列に取得する."""
+def _fetch_regions_parallel(
+    fetcher, creds: dict, regions: list[str], account_id: str, svc: str
+) -> tuple[list[dict], bool]:
+    """複数リージョンを並列に取得する。
+
+    Returns: (results, had_transient_error)
+        had_transient_error が True の場合、ネットワーク/SSL 等の一過性エラーがあったため
+        呼び出し側は結果をキャッシュすべきでない（翌リクエストで再試行させる）。
+    """
     if not regions:
-        return []
-    results = []
+        return [], False
+    results: list[dict] = []
+    had_transient = False
     with ThreadPoolExecutor(max_workers=min(_MAX_REGION_WORKERS, len(regions))) as pool:
         future_to_region = {pool.submit(fetcher, creds, r): r for r in regions}
         for future in as_completed(future_to_region):
@@ -226,7 +242,10 @@ def _fetch_regions_parallel(fetcher, creds: dict, regions: list[str], account_id
                     logger.info("Access denied for %s/%s in %s — skipping", account_id, svc, region)
                 else:
                     logger.warning("Error fetching %s for %s in %s: %s", svc, account_id, region, e)
-    return results
+            except BotoCoreError as e:
+                had_transient = True
+                logger.warning("Network error fetching %s for %s in %s: %s", svc, account_id, region, e)
+    return results, had_transient
 
 
 # ============================================================
@@ -353,9 +372,11 @@ def get_account_resources(account_id: str, service: str | None = None) -> dict:
 
     for svc in target_services:
         from_cache = False
-        cached = get_resource_snapshot(account_id, svc, today)
+        had_transient_error = False
+        cached = get_resource_snapshot_with_meta(account_id, svc, today)
         if cached is not None:
-            resources = cached
+            resources = cached["data"]
+            had_transient_error = cached["partial"]
             from_cache = True
         else:
             resources = []
@@ -363,16 +384,32 @@ def get_account_resources(account_id: str, service: str | None = None) -> dict:
                 if svc in _GLOBAL_FETCHERS:
                     resources = _GLOBAL_FETCHERS[svc](creds)
                 elif svc in _FETCHERS:
-                    resources = _fetch_regions_parallel(_FETCHERS[svc], creds, regions, account_id, svc)
+                    resources, had_transient_error = _fetch_regions_parallel(
+                        _FETCHERS[svc], creds, regions, account_id, svc
+                    )
+            except BotoCoreError:
+                logger.exception("Network error while fetching %s for account %s", svc, account_id)
+                had_transient_error = True
             except Exception:
                 logger.exception("Failed to fetch %s for account %s", svc, account_id)
-            set_resource_snapshot(account_id, svc, today, resources)
+            set_resource_snapshot(account_id, svc, today, resources, partial=had_transient_error)
+            if had_transient_error:
+                logger.info(
+                    "Partial snapshot cached for %s/%s (TTL 30min) — failed regions will be retried after TTL",
+                    account_id,
+                    svc,
+                )
 
         if resources and svc in ("ec2", "rds", "elasticache"):
             enrich_resources_with_pricing(svc, resources, creds)
         if resources:
             _enrich_with_actual_costs(svc, resources, cost_map)
 
-        result["services"][svc] = {"resources": resources, "count": len(resources), "fromCache": from_cache}
+        result["services"][svc] = {
+            "resources": resources,
+            "count": len(resources),
+            "fromCache": from_cache,
+            "partial": had_transient_error,
+        }
 
     return result

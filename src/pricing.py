@@ -4,6 +4,7 @@ import json
 import logging
 
 import boto3
+from botocore.config import Config
 
 from src.cache import get_cached, set_cached
 
@@ -33,8 +34,15 @@ REGION_LOCATION_MAP = {
 }
 
 
+_PRICING_CONFIG = Config(
+    retries={"max_attempts": 5, "mode": "standard"},
+    connect_timeout=10,
+    read_timeout=30,
+)
+
+
 def _get_pricing_client(creds: dict):
-    return boto3.client("pricing", region_name="us-east-1", **creds)
+    return boto3.client("pricing", region_name="us-east-1", config=_PRICING_CONFIG, **creds)
 
 
 def _extract_ondemand_price(price_item: dict) -> float | None:
