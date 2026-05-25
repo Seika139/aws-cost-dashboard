@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "AWS multi-account cost dashboard"
 requires-python = ">=3.12"
 dependencies = [
-  "boto3>=1.43.2",
+  "boto3>=1.43.9",
   "fastapi>=0.136.1",
-  "uvicorn[standard]>=0.46.0",
+  "uvicorn[standard]>=0.47.0",
 ]
 
 [tool.ruff]
@@ -20,7 +20,7 @@ select = ["E", "F", "I", "W"]
 testpaths = ["tests"]
 
 [dependency-groups]
-dev = ["pytest>=9.0.3", "ruff>=0.15.12"]
+dev = ["pytest>=9.0.3", "ruff>=0.15.13"]
 
 [tool.rumdl]
 respect_gitignore = true
