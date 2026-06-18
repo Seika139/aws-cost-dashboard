@@ -965,8 +965,10 @@ var configAccountList = document.getElementById("config-account-list");
 var configSearch = document.getElementById("config-account-search");
 var configCountEl = document.getElementById("config-selected-count");
 var configSelectedIds = new Set();
+var serverDefaultAccountIds = undefined;
 
 function loadDefaultAccountConfig() {
+  if (serverDefaultAccountIds !== undefined) return serverDefaultAccountIds;
   try {
     var raw = localStorage.getItem(CONFIG_STORAGE_KEY);
     if (raw) return JSON.parse(raw);
@@ -978,8 +980,49 @@ function saveDefaultAccountConfig(ids) {
   localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(ids));
 }
 
+async function loadServerDefaultAccountConfig() {
+  try {
+    var res = await fetch("/api/config/default-accounts");
+    if (!res.ok) return;
+    var data = await res.json();
+    serverDefaultAccountIds = data.accountIds || null;
+    if (serverDefaultAccountIds === null) {
+      var localSaved = loadDefaultAccountConfigFromLocalStorage();
+      if (localSaved) {
+        await saveServerDefaultAccountConfig(localSaved);
+        serverDefaultAccountIds = localSaved;
+      }
+    }
+  } catch (e) { /* keep localStorage fallback */ }
+}
+
+function loadDefaultAccountConfigFromLocalStorage() {
+  try {
+    var raw = localStorage.getItem(CONFIG_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+async function saveServerDefaultAccountConfig(ids) {
+  var res = await fetch("/api/config/default-accounts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accountIds: ids }),
+  });
+  if (!res.ok) throw new Error("Failed to save server config");
+  serverDefaultAccountIds = ids;
+}
+
+async function clearServerDefaultAccountConfig() {
+  var res = await fetch("/api/config/default-accounts", { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to clear server config");
+  serverDefaultAccountIds = null;
+}
+
 function populateConfigAccountList() {
   while (configAccountList.firstChild) configAccountList.removeChild(configAccountList.firstChild);
+  configSelectedIds.clear();
   var saved = loadDefaultAccountConfig();
 
   allAccounts.forEach(function(a) {
@@ -1054,12 +1097,15 @@ configSearch.addEventListener("input", function() {
   });
 });
 
-document.getElementById("config-save").addEventListener("click", function() {
+document.getElementById("config-save").addEventListener("click", async function() {
   var ids = Array.from(configSelectedIds);
+  var syncFailed = false;
   if (ids.length === allAccounts.length) {
     localStorage.removeItem(CONFIG_STORAGE_KEY); // all = no config needed
+    try { await clearServerDefaultAccountConfig(); } catch (e) { syncFailed = true; }
   } else {
     saveDefaultAccountConfig(ids);
+    try { await saveServerDefaultAccountConfig(ids); } catch (e) { syncFailed = true; }
   }
   // Apply to current session's multi-select
   selectedAccountIds = new Set(ids.length ? ids : allAccounts.map(function(a) { return a.accountId; }));
@@ -1067,11 +1113,13 @@ document.getElementById("config-save").addEventListener("click", function() {
     cb.checked = selectedAccountIds.has(cb.value);
   });
   updateToggleLabel();
-  showToast("Default accounts saved");
+  showToast(syncFailed ? "Saved locally; server sync failed" : "Default accounts saved");
 });
 
-document.getElementById("config-reset").addEventListener("click", function() {
+document.getElementById("config-reset").addEventListener("click", async function() {
   localStorage.removeItem(CONFIG_STORAGE_KEY);
+  var syncFailed = false;
+  try { await clearServerDefaultAccountConfig(); } catch (e) { syncFailed = true; }
   configAccountList.querySelectorAll("input[type=checkbox]").forEach(function(cb) { cb.checked = true; });
   configSelectedIds = new Set(allAccounts.map(function(a) { return a.accountId; }));
   updateConfigCount();
@@ -1079,7 +1127,7 @@ document.getElementById("config-reset").addEventListener("click", function() {
   selectedAccountIds = new Set(allAccounts.map(function(a) { return a.accountId; }));
   msOptions.querySelectorAll("input[type=checkbox]").forEach(function(cb) { cb.checked = true; });
   updateToggleLabel();
-  showToast("Reset to all accounts");
+  showToast(syncFailed ? "Reset locally; server sync failed" : "Reset to all accounts");
 });
 
 function showToast(msg) {
@@ -1503,7 +1551,8 @@ ssoStartBtn.addEventListener("click", async function() {
       setTimeout(function() {
         hideSsoModal();
         // 認証完了 → アカウント一覧を再読み込み
-        loadAccounts().then(function() {
+        loadAccounts().then(async function() {
+          await loadServerDefaultAccountConfig();
           populateConfigAccountList();
           applyDefaultAccountSelection();
         });
@@ -1527,7 +1576,8 @@ function showErrorWithSsoHint(msg) {
 }
 
 // --- Init ---
-loadAccounts().then(function() {
+loadAccounts().then(async function() {
+  await loadServerDefaultAccountConfig();
   populateConfigAccountList();
   applyDefaultAccountSelection();
 });

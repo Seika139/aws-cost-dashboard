@@ -49,6 +49,13 @@ def _get_conn() -> sqlite3.Connection:
             UNIQUE(account_id, service, snapshot_date)
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_settings (
+            key         TEXT PRIMARY KEY,
+            data        TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        )
+    """)
     _ensure_partial_column(conn)
     conn.commit()
     return conn
@@ -246,3 +253,52 @@ def get_resource_history(account_id: str, service: str, days: int = 30) -> list[
     ).fetchall()
     conn.close()
     return [{"date": r[0], "data": json.loads(r[1]), "fetchedAt": r[2], "partial": bool(r[3])} for r in rows]
+
+
+# ============================================================
+# User Settings
+# ============================================================
+
+
+def get_user_setting(key: str) -> dict | None:
+    conn = _get_conn()
+    row = conn.execute("SELECT data FROM user_settings WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return json.loads(row[0])
+
+
+def set_user_setting(key: str, data: dict) -> None:
+    conn = _get_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO user_settings (key, data, updated_at) VALUES (?, ?, ?)",
+        (key, json.dumps(data), datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_user_setting(key: str) -> bool:
+    conn = _get_conn()
+    cur = conn.execute("DELETE FROM user_settings WHERE key = ?", (key,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def get_default_account_ids() -> list[str] | None:
+    setting = get_user_setting("default_accounts")
+    if setting is None:
+        return None
+    account_ids = setting.get("accountIds")
+    return account_ids if isinstance(account_ids, list) else None
+
+
+def set_default_account_ids(account_ids: list[str]) -> None:
+    set_user_setting("default_accounts", {"accountIds": account_ids})
+
+
+def clear_default_account_ids() -> bool:
+    return delete_user_setting("default_accounts")

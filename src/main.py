@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from src.accounts import get_accounts_with_roles
 from src.auth import (
@@ -17,7 +18,13 @@ from src.auth import (
     poll_sso_token,
     start_sso_login,
 )
-from src.cache import clear_cache, get_resource_history
+from src.cache import (
+    clear_cache,
+    clear_default_account_ids,
+    get_default_account_ids,
+    get_resource_history,
+    set_default_account_ids,
+)
 from src.cost import get_account_cost, get_all_accounts_cost
 from src.resources import get_account_resources
 
@@ -26,6 +33,10 @@ logging.basicConfig(level=logging.INFO)
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 app = FastAPI(title="AWS Cost Dashboard")
+
+
+class DefaultAccountsPayload(BaseModel):
+    accountIds: list[str]
 
 
 @app.exception_handler(SSOTokenExpiredError)
@@ -101,6 +112,32 @@ async def api_clear_cache():
     """キャッシュを全削除."""
     count = clear_cache()
     return {"deleted": count}
+
+
+# ============================================================
+# Config
+# ============================================================
+
+
+@app.get("/api/config/default-accounts")
+async def api_get_default_accounts():
+    """Config タブのデフォルト選択アカウントを返す。None は全アカウント選択を意味する。"""
+    return {"accountIds": get_default_account_ids()}
+
+
+@app.post("/api/config/default-accounts")
+async def api_set_default_accounts(payload: DefaultAccountsPayload):
+    """Config タブのデフォルト選択アカウントを保存する。"""
+    account_ids = [account_id for account_id in payload.accountIds if account_id]
+    set_default_account_ids(account_ids)
+    return {"accountIds": account_ids}
+
+
+@app.delete("/api/config/default-accounts")
+async def api_clear_default_accounts():
+    """Config タブのデフォルト選択アカウントを削除する（全アカウント選択）。"""
+    clear_default_account_ids()
+    return {"accountIds": None}
 
 
 # ============================================================
