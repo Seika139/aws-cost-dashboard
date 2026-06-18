@@ -10,6 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import boto3
+from botocore import UNSIGNED
+from botocore.config import Config
+
+from src.cache import get_cached, set_cached
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +24,13 @@ SSO_CACHE_DIR = Path.home() / ".aws" / "sso" / "cache"
 _OIDC_CLIENT_NAME = "aws-cost-dashboard"
 _OIDC_CLIENT_TYPE = "public"
 _OIDC_GRANT_TYPES = ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"]
+_SSO_CACHE_TTL_HOURS = 24
+_SSO_CONFIG = Config(
+    signature_version=UNSIGNED,
+    retries={"max_attempts": 5, "mode": "standard"},
+    connect_timeout=5,
+    read_timeout=30,
+)
 
 
 class SSOTokenExpiredError(Exception):
@@ -122,22 +133,28 @@ def _save_token_cache(session_name: str, token_data: dict, cache_dir: Path | Non
 # ============================================================
 
 
-def _load_access_token(session_name: str | None = None) -> tuple[str, str]:
-    """有効なアクセストークンと SSO リージョンを返す."""
+def _load_access_token_with_session(session_name: str | None = None) -> tuple[str, str, str]:
+    """有効なアクセストークン、SSO リージョン、session 名を返す."""
     session = get_sso_session(session_name)
     cached = _load_cached_token(session["name"])
     if cached and cached.get("accessToken"):
-        return cached["accessToken"], session["region"]
+        return cached["accessToken"], session["region"], session["name"]
     raise SSOTokenExpiredError(
         "SSO トークンが見つからないか有効期限切れです。ダッシュボードの SSO Login ボタン、"
         "または `mise run sso-login` を実行してください。"
     )
 
 
+def _load_access_token(session_name: str | None = None) -> tuple[str, str]:
+    """有効なアクセストークンと SSO リージョンを返す."""
+    access_token, region, _session_name = _load_access_token_with_session(session_name)
+    return access_token, region
+
+
 def get_sso_client(session_name: str | None = None) -> tuple[boto3.client, str]:
     """認証済み SSO クライアントとアクセストークンを返す."""
     access_token, region = _load_access_token(session_name)
-    client = boto3.client("sso", region_name=region)
+    client = boto3.client("sso", region_name=region, config=_SSO_CONFIG)
     return client, access_token
 
 
@@ -176,7 +193,7 @@ def _get_or_register_client(oidc_client: boto3.client, session: dict) -> dict:
 def start_sso_login(session_name: str | None = None) -> dict:
     """OIDC デバイス認可フローを開始する。ブラウザで開く URL を返す."""
     session = get_sso_session(session_name)
-    oidc_client = boto3.client("sso-oidc", region_name=session["region"])
+    oidc_client = boto3.client("sso-oidc", region_name=session["region"], config=_SSO_CONFIG)
 
     client_reg = _get_or_register_client(oidc_client, session)
     auth_resp = oidc_client.start_device_authorization(
@@ -203,7 +220,7 @@ def start_sso_login(session_name: str | None = None) -> dict:
 def poll_sso_token(login_context: dict) -> dict:
     """デバイス認可のポーリングを行い、トークンを取得・キャッシュする."""
     session_name = login_context["session_name"]
-    oidc_client = boto3.client("sso-oidc", region_name=login_context["region"])
+    oidc_client = boto3.client("sso-oidc", region_name=login_context["region"], config=_SSO_CONFIG)
     interval = login_context.get("interval", 5)
     deadline = time.time() + login_context.get("expires_in", 600)
 
@@ -254,21 +271,36 @@ def sso_login_interactive(session_name: str | None = None) -> dict:
 
 def list_accounts() -> list[dict]:
     """SSO 配下の全アカウントを取得する."""
-    client, token = get_sso_client()
+    token, region, session_name = _load_access_token_with_session()
+    cache_key = f"sso:accounts:{session_name}"
+    cached = get_cached(cache_key, max_age_hours=_SSO_CACHE_TTL_HOURS)
+    if cached is not None:
+        return cached["accounts"]
+
+    client = boto3.client("sso", region_name=region, config=_SSO_CONFIG)
     accounts = []
     paginator = client.get_paginator("list_accounts")
     for page in paginator.paginate(accessToken=token):
         accounts.extend(page["accountList"])
-    return sorted(accounts, key=lambda a: a["accountName"])
+    accounts = sorted(accounts, key=lambda a: a["accountName"])
+    set_cached(cache_key, {"accounts": accounts})
+    return accounts
 
 
 def list_account_roles(account_id: str) -> list[dict]:
     """指定アカウントで利用可能なロールを取得する."""
-    client, token = get_sso_client()
+    token, region, session_name = _load_access_token_with_session()
+    cache_key = f"sso:roles:{session_name}:{account_id}"
+    cached = get_cached(cache_key, max_age_hours=_SSO_CACHE_TTL_HOURS)
+    if cached is not None:
+        return cached["roles"]
+
+    client = boto3.client("sso", region_name=region, config=_SSO_CONFIG)
     paginator = client.get_paginator("list_account_roles")
     roles = []
     for page in paginator.paginate(accessToken=token, accountId=account_id):
         roles.extend(page["roleList"])
+    set_cached(cache_key, {"roles": roles})
     return roles
 
 
