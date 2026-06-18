@@ -20,7 +20,8 @@ AWS SSO (IAM Identity Center) 配下の複数アカウントのコストデー�
   - コスト集計テーブル（シェア率付き）
 - **5種のコストメトリクス**: Unblended / Amortized / Blended / Net Unblended / Net Amortized を切替可能
 - **柔軟なフィルタリング**: 期間（年月セレクタ）、粒度（Monthly/Daily）、アカウント選択
-- **2層キャッシュ**: サーバー側 SQLite (24h TTL) + クライアント側 localStorage (1h TTL) で Cost Explorer API の課金を最小化
+- **2層キャッシュ**: サーバー側 SQLite (期間 bucket キャッシュ) + クライアント側 localStorage (1h TTL) で Cost Explorer API の課金を最小化
+- **バックグラウンド事前取得**: `mise run prefetch-cost` で Cost Explorer データを先にキャッシュ可能
 - **パフォーマンス最適化**: 同時実行数制限付きフェッチ、IntersectionObserver によるチャート遅延描画
 
 ## 前提条件
@@ -67,7 +68,9 @@ aws-cost-dashboard/
 │   ├── auth.py        # SSO 設定読取 / OIDC ログイン / クレデンシャル取得
 │   ├── accounts.py    # アカウント一覧 + ロール情報
 │   ├── cost.py        # Cost Explorer API ラッパー（全5メトリクス取得）
-│   └── cache.py       # SQLite キャッシュ（24h TTL）
+│   ├── pricing.py     # Price List API ラッパー（On-Demand 単価取得）
+│   ├── resources.py   # EC2/ECS/RDS/S3/ElastiCache の棚卸し
+│   └── cache.py       # SQLite キャッシュ（期間 bucket / SSO metadata / resource snapshot）
 ├── static/
 │   ├── index.html     # SPA エントリポイント
 │   ├── app.js         # クライアントロジック / Chart.js 描画
@@ -83,7 +86,7 @@ Browser (app.js)
   ├─ localStorage cache (1h TTL) ─ hit → render
   └─ miss → GET /api/cost/{account_id}
                └─ FastAPI (main.py)
-                    └─ SQLite cache (24h TTL) ─ hit → respond
+                    └─ SQLite period cache ─ hit → respond
                     └─ miss → Cost Explorer API
                                 └─ SSO get_role_credentials
                                      └─ ~/.aws/sso/cache/ (access token)
@@ -100,6 +103,9 @@ Browser (app.js)
 | GET    | `/api/cost`              | 全アカウントのコスト一括取得               |
 | GET    | `/api/cost/{account_id}` | 単一アカウントのコスト取得                 |
 | DELETE | `/api/cache`             | サーバーキャッシュ全削除                   |
+| GET    | `/api/config/default-accounts` | デフォルト選択アカウント取得       |
+| POST   | `/api/config/default-accounts` | デフォルト選択アカウント保存       |
+| DELETE | `/api/config/default-accounts` | デフォルト選択アカウント削除       |
 | GET    | `/api/sso/sessions`      | `~/.aws/config` の sso-session 一覧        |
 | POST   | `/api/sso/login`         | SSO ログイン開始（認証 URL を返す）        |
 | POST   | `/api/sso/login/poll`    | 認証完了をポーリング（トークン取得・保存） |
@@ -127,35 +133,42 @@ Net 系メトリクスが使えないアカウントでは自動的に基本3メ
 
 ### キャッシュ・データ保存
 
-Cost Explorer API は 1リクエストあたり $0.01 課金されるため、2層キャッシュで呼び出し回数を最小化している。
+Cost Explorer API は 1リクエストあたり $0.01 課金されるため、2層キャッシュと期間 bucket キャッシュで呼び出し回数を最小化している。
 
 #### 料金データのキャッシュ
 
-| レイヤー     | 保存先                 | TTL    | キー形式                                                   |
-| ------------ | ---------------------- | ------ | ---------------------------------------------------------- |
-| サーバー     | SQLite `data/cache.db` | 24時間 | `cost:{account_id}:{start}:{end}:{granularity}:{group_by}` |
-| クライアント | localStorage           | 1時間  | `awscc:cost:{account_id}:{start}:{end}:{granularity}`      |
+| レイヤー               | 保存先                 | TTL                         | キー形式 / 粒度                                                |
+| ---------------------- | ---------------------- | --------------------------- | -------------------------------------------------------------- |
+| サーバー（期間 bucket） | SQLite `data/cache.db` | 当月 bucket は 1週間、過去確定月は 90日 | `account_id + granularity + group_by + period_start/end` |
+| サーバー（旧 exact）   | SQLite `data/cache.db` | 1週間                       | `cost:{account_id}:{start}:{end}:{granularity}:{group_by}`     |
+| クライアント           | localStorage           | 1時間                       | `awscc:cost:{account_id}:{start}:{end}:{granularity}`          |
+
+`DAILY` と `MONTHLY` は AWS 側で集計方法が異なる可能性があるため、相互に合算・変換しない。`DAILY` は日単位、`MONTHLY` は月単位の bucket として個別にキャッシュする。
 
 リクエストの流れ:
 
 1. クライアント localStorage にヒット → そのまま描画（API リクエストなし）
-2. localStorage にない → サーバーへリクエスト → SQLite にヒット → レスポンス返却（AWS API リクエストなし）
-3. SQLite にもない → AWS Cost Explorer API を呼び出し → SQLite に保存 → レスポンス返却
+2. localStorage にない → サーバーへリクエスト → SQLite の期間 bucket にヒットした部分は再利用
+3. SQLite で不足している bucket だけ AWS Cost Explorer API を呼び出し → SQLite に保存 → レスポンス返却
 
 UI の「Clear Cache」ボタンでサーバー (SQLite) とクライアント (localStorage) の両方を一括クリアできる。
 
+#### SSO アカウント・ロール情報のキャッシュ
+
+SSO の account list / role list も SQLite に 24時間キャッシュする。SSO トークン自体の有効性は `~/.aws/sso/cache/` で先に確認するため、トークン切れをキャッシュで隠さない。
+
 #### ユーザー設定の保存
 
-Config タブの設定もブラウザの localStorage に保存される。
+Config タブの設定はブラウザの localStorage とサーバー側 SQLite の両方に保存される。SQLite 側の設定は `prefetch` からも利用される。
 
-| 設定                     | localStorage キー              | 内容                                |
-| ------------------------ | ------------------------------ | ----------------------------------- |
-| デフォルト選択アカウント | `awscc:config:defaultAccounts` | 選択されたアカウントIDの配列 (JSON) |
+| 設定                     | 保存先                                               | 内容                                |
+| ------------------------ | ---------------------------------------------------- | ----------------------------------- |
+| デフォルト選択アカウント | localStorage `awscc:config:defaultAccounts` / SQLite | 選択されたアカウントIDの配列 (JSON) |
 
 - 全アカウント選択の場合はキーを保存しない（未設定 = 全選択として扱う）
 - Config タブの「Save」で保存、「Reset to All」で削除
 - 保存した設定は次回ページ読み込み時に Cost Explorer タブの Account Filter に自動反映される
-- サーバー側には保存されないため、ブラウザごとに独立した設定となる
+- 既存ブラウザの localStorage 設定は、ダッシュボード読み込み時に SQLite 側へ自動同期される
 
 ### パフォーマンス
 
@@ -163,6 +176,7 @@ Config タブの設定もブラウザの localStorage に保存される。
 - **プログレスバー**: フェッチ進捗をリアルタイム表示（`12 / 34 accounts`）
 - **チャート遅延描画**: `IntersectionObserver` でビューポート外のチャートは `<canvas>` のみ配置し、スクロールで近づいたときに `Chart.js` インスタンスを生成
 - **メトリクス切替**: 全5メトリクスを一括取得済みのため、ドロップダウン変更時は再フェッチ不要で即座に再描画
+- **診断ログ**: サーバーログに cache hit / miss / expired と Cost Explorer fetch 範囲を出力。ブラウザ console には `[awscc] account cost fetch` と `[awscc] dashboard timing` を出力
 
 ## 開発
 
@@ -171,8 +185,64 @@ Config タブの設定もブラウザの localStorage に保存される。
 ```bash
 mise run dev        # 開発サーバー（ホットリロード）
 mise run sso-login  # SSO ログイン（ブラウザ認証）
+mise run prefetch-cost -- --granularity BOTH --months 3  # Cost Explorer データを事前取得
+mise run prefetch-dashboard-default  # default accounts を対象に 24か月 Monthly + 4か月 Daily を事前取得
 mise run lint       # リンター
 mise run format     # フォーマッター
+```
+
+### バックグラウンド事前取得
+
+よく見る期間を先に取得しておくと、ダッシュボード表示時は SQLite cache hit になりやすい。
+
+推奨手順:
+
+1. `mise run serve` で起動し、ブラウザで Config タブを開く
+2. Default Account Selection で普段見るアカウントを選び、`Save` を押す
+3. `mise run prefetch-cost -- --preset dashboard-default --dry-run` で対象と期間を確認する
+4. 手動で一度取得するなら `mise run prefetch-dashboard-default` を実行する
+5. 毎日自動取得するなら `mise run install-prefetch-launchd` を実行する
+
+```bash
+# Config タブの Default Account Selection を対象にする定期実行向けプリセット
+# MONTHLY: 当月を含む直近24か月 / DAILY: 当月を含む直近4か月
+mise run prefetch-dashboard-default
+
+# 当月を含む直近3か月を DAILY / MONTHLY 両方で取得
+mise run prefetch-cost -- --granularity BOTH --months 3
+
+# 月次だけ直近12か月を取得
+mise run prefetch-cost -- --granularity MONTHLY --months 12
+
+# 特定アカウントだけ取得
+mise run prefetch-cost -- --accounts 123456789012,210987654321 --granularity DAILY --months 2
+
+# 取得せず対象だけ確認
+mise run prefetch-cost -- --preset dashboard-default --dry-run
+```
+
+macOS で定期実行する場合は `cron` より `launchd` が安定する。installer は repo 内の `.mise/tasks/install-prefetch-launchd` にあり、以下で毎日 11:30 と 14:30（Mac のローカルタイムゾーン）のジョブを作成・登録する。
+
+```bash
+mise run install-prefetch-launchd
+
+# 時刻を変える（複数指定可）
+mise run install-prefetch-launchd -- --time 7:30 --time 13:30
+
+# 登録直後に一度実行する
+mise run install-prefetch-launchd -- --run-now
+
+# 削除する
+mise run install-prefetch-launchd -- --uninstall
+```
+
+ジョブは `mise run prefetch-cost -- --preset dashboard-default` を実行する。SSO トークンが切れている場合、prefetch はログにエラーを出して終了するため、必要に応じて `mise run sso-login` で再ログインする。ログは `data/logs/prefetch-launchd.log` と `data/logs/prefetch-launchd.err` に出力される。
+
+登録状況を確認する場合:
+
+```bash
+launchctl print gui/$(id -u)/com.aws-cost-dashboard.prefetch
+tail -f data/logs/prefetch-launchd.log
 ```
 
 ## トラブルシューティング

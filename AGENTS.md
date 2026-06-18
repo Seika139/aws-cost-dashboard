@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 AWS SSO 配下の複数アカウントのコストを可視化するローカルダッシュボード。
 
@@ -15,9 +15,6 @@ AWS SSO 配下の複数アカウントのコストを可視化するローカル
 mise run serve      # 起動 (port 8100)
 mise run dev        # 開発（ホットリロード）
 mise run sso-login  # SSO ログイン（ブラウザ認証）
-mise run prefetch-cost -- --granularity BOTH --months 3  # Cost Explorer 事前取得
-mise run prefetch-dashboard-default  # default accounts を 24か月 Monthly + 4か月 Daily で事前取得
-mise run install-prefetch-launchd    # macOS launchd の事前取得ジョブを登録
 mise run test       # テスト
 mise run lint       # リント
 mise run format     # フォーマット
@@ -51,24 +48,18 @@ mise run format     # フォーマット
 
 ### キャッシュ・データ保存
 
-- 料金キャッシュ（サーバー）: SQLite `data/cache.db` — 当月 bucket は TTL 1週間、過去確定月 bucket は TTL 90日
+- 料金キャッシュ（サーバー）: SQLite `data/cache.db` — TTL 24時間
 - 料金キャッシュ（クライアント）: localStorage `awscc:cost:*` — TTL 1時間
-- SSO account / role metadata: SQLite `data/cache.db` — TTL 24時間（SSO token 有効性は別途確認）
-- ユーザー設定: localStorage `awscc:config:defaultAccounts` + SQLite `user_settings.default_accounts`
+- ユーザー設定: localStorage `awscc:config:defaultAccounts` — 永続（サーバー保存なし）
 - `cost.py` のレスポンス構造を変えたらサーバーキャッシュのクリアが必要（`DELETE /api/cache` または DB 直接削除）
-- `DAILY` と `MONTHLY` は相互変換しない。Cost Explorer の `ResultsByTime` 単位で、同じ granularity 内だけ部分再利用する
 
 ## ファイル構成
 
 - `src/auth.py` — SSO 設定読取（~/.aws/config）、OIDC デバイス認可フロー、トークンキャッシュ、アカウント一覧、ロール一覧、一時クレデンシャル取得
 - `src/accounts.py` — アカウント＋ロール情報の組み立て
-- `src/cost.py` — Cost Explorer API ラッパー。全5メトリクス一括取得、Net系フォールバック、期間 bucket キャッシュ
+- `src/cost.py` — Cost Explorer API ラッパー。全5メトリクス一括取得、Net系フォールバック、ページネーション
 - `src/cache.py` — SQLite キャッシュ CRUD
-- `src/pricing.py` — Price List API ラッパー。On-Demand 単価取得
-- `src/resources.py` — EC2 / ECS / RDS / S3 / ElastiCache の棚卸し、Actual Cost 付与
-- `src/prefetch.py` — Cost Explorer cache 事前取得 CLI
 - `src/main.py` — FastAPI ルーティング。ポート 8100
-- `.mise/tasks/install-prefetch-launchd` — macOS launchd 事前取得ジョブ installer
 - `static/app.js` — SPA ロジック。フェッチ（同時実行数制限）、描画（IntersectionObserver 遅延）、localStorage キャッシュ
 - `static/style.css` — ダークテーマ CSS。CSS変数ベース
 - `static/index.html` — SPA エントリポイント
