@@ -14,6 +14,14 @@ run = "uv run uvicorn src.main:app --host 0.0.0.0 --port 8100 --reload"
 description = "SSO login (opens browser for authentication)"
 run = "uv run python -c 'from src.auth import sso_login_interactive; sso_login_interactive()'"
 
+[tasks.prefetch-cost]
+description = "Prefetch Cost Explorer data into the SQLite cache"
+run = "env -u AWS_PROFILE -u AWS_REGION -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN -u AWS_SECURITY_TOKEN AWS_EC2_METADATA_DISABLED=true uv run python -m src.prefetch"
+
+[tasks.prefetch-dashboard-default]
+description = "Prefetch dashboard default accounts (24 monthly months + 4 daily months)"
+run = "mise run prefetch-cost -- --preset dashboard-default"
+
 [tasks.test]
 description = "Run tests"
 run = "uv run pytest tests/ -v"
