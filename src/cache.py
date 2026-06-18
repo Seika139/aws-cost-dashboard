@@ -1,12 +1,17 @@
 """SQLite ベースのキャッシュ。Cost Explorer API の課金を抑えるために使用."""
 
 import json
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cache.db"
 
+logger = logging.getLogger(__name__)
+
+DEFAULT_COST_CACHE_TTL_HOURS = 168
+FINALIZED_COST_CACHE_TTL_HOURS = 24 * 90
 
 PARTIAL_SNAPSHOT_TTL_MINUTES = 30
 
@@ -19,6 +24,19 @@ def _get_conn() -> sqlite3.Connection:
             cache_key   TEXT PRIMARY KEY,
             data        TEXT NOT NULL,
             fetched_at  TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS cost_period_cache (
+            account_id    TEXT NOT NULL,
+            granularity   TEXT NOT NULL,
+            group_by      TEXT NOT NULL,
+            period_start  TEXT NOT NULL,
+            period_end    TEXT NOT NULL,
+            data          TEXT NOT NULL,
+            fetched_at    TEXT NOT NULL,
+            role_name     TEXT,
+            PRIMARY KEY (account_id, granularity, group_by, period_start, period_end)
         )
     """)
     conn.execute("""
@@ -42,17 +60,20 @@ def _ensure_partial_column(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE resource_snapshots ADD COLUMN partial INTEGER NOT NULL DEFAULT 0")
 
 
-def get_cached(key: str, max_age_hours: int = 24) -> dict | None:
+def get_cached(key: str, max_age_hours: int = DEFAULT_COST_CACHE_TTL_HOURS) -> dict | None:
     """キャッシュを取得。max_age_hours 以内のデータがあれば返す."""
     conn = _get_conn()
     row = conn.execute("SELECT data, fetched_at FROM cost_cache WHERE cache_key = ?", (key,)).fetchone()
     conn.close()
     if row is None:
+        logger.info("Cache miss: key=%s", key)
         return None
     fetched_at = datetime.fromisoformat(row[1])
     age_hours = (datetime.now(timezone.utc) - fetched_at).total_seconds() / 3600
     if age_hours > max_age_hours:
+        logger.info("Cache expired: key=%s age_hours=%.2f ttl_hours=%s", key, age_hours, max_age_hours)
         return None
+    logger.info("Cache hit: key=%s age_hours=%.2f ttl_hours=%s", key, age_hours, max_age_hours)
     return json.loads(row[0])
 
 
@@ -72,9 +93,94 @@ def clear_cache() -> int:
     conn = _get_conn()
     cur = conn.execute("DELETE FROM cost_cache")
     count = cur.rowcount
+    cur = conn.execute("DELETE FROM cost_period_cache")
+    count += cur.rowcount
     conn.commit()
     conn.close()
     return count
+
+
+# ============================================================
+# Cost Period Cache
+# ============================================================
+
+
+def get_cost_period_cached(
+    account_id: str,
+    granularity: str,
+    group_by: str,
+    period_start: str,
+    period_end: str,
+    *,
+    max_age_hours: int = DEFAULT_COST_CACHE_TTL_HOURS,
+) -> dict | None:
+    """Cost Explorer の ResultsByTime 1 bucket を取得する."""
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT data, fetched_at, role_name FROM cost_period_cache "
+        "WHERE account_id = ? AND granularity = ? AND group_by = ? AND period_start = ? AND period_end = ?",
+        (account_id, granularity, group_by, period_start, period_end),
+    ).fetchone()
+    conn.close()
+    log_key = f"cost_period:{account_id}:{period_start}:{period_end}:{granularity}:{group_by}"
+    if row is None:
+        logger.info("Cost period cache miss: key=%s", log_key)
+        return None
+    fetched_at = datetime.fromisoformat(row[1])
+    age_hours = (datetime.now(timezone.utc) - fetched_at).total_seconds() / 3600
+    if age_hours > max_age_hours:
+        logger.info("Cost period cache expired: key=%s age_hours=%.2f ttl_hours=%s", log_key, age_hours, max_age_hours)
+        return None
+    logger.info("Cost period cache hit: key=%s age_hours=%.2f ttl_hours=%s", log_key, age_hours, max_age_hours)
+    return {"data": json.loads(row[0]), "fetchedAt": row[1], "roleName": row[2]}
+
+
+def set_cost_period_cached(
+    account_id: str,
+    granularity: str,
+    group_by: str,
+    period: dict,
+    *,
+    role_name: str | None = None,
+) -> None:
+    """Cost Explorer の ResultsByTime 1 bucket を保存する."""
+    time_period = period.get("TimePeriod", {})
+    period_start = time_period.get("Start")
+    period_end = time_period.get("End")
+    if not period_start or not period_end:
+        return
+
+    conn = _get_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO cost_period_cache "
+        "(account_id, granularity, group_by, period_start, period_end, data, fetched_at, role_name) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            account_id,
+            granularity,
+            group_by,
+            period_start,
+            period_end,
+            json.dumps(period),
+            datetime.now(timezone.utc).isoformat(),
+            role_name,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_cost_periods_cached(
+    account_id: str,
+    granularity: str,
+    group_by: str,
+    periods: list[dict],
+    *,
+    role_name: str | None = None,
+) -> None:
+    """複数の Cost Explorer bucket を保存する."""
+    for period in periods:
+        set_cost_period_cached(account_id, granularity, group_by, period, role_name=role_name)
 
 
 # ============================================================
