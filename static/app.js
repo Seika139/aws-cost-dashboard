@@ -396,11 +396,23 @@ function getAccountName(id) { for(var i=0;i<allAccounts.length;i++) if(allAccoun
 async function fetchAccountCost(id, start, end, granularity) {
   var cacheKey = "cost:" + id + ":" + start + ":" + end + ":" + granularity;
   var cached = clientCacheGet(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    console.info("[awscc] client cache hit", { accountId: id, start: start, end: end, granularity: granularity });
+    return cached;
+  }
 
   var url = "/api/cost/" + id + "?start=" + start + "&end=" + end + "&granularity=" + granularity + "&group_by=SERVICE";
+  var startedAt = performance.now();
   try {
     var res = await fetch(url);
+    console.info("[awscc] account cost fetch", {
+      accountId: id,
+      start: start,
+      end: end,
+      granularity: granularity,
+      status: res.status,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    });
     if (!res.ok) return { accountId: id, accountName: getAccountName(id), results: [], error: "HTTP " + res.status };
     var data = await res.json();
     if (!data.accountName) data.accountName = getAccountName(data.accountId);
@@ -420,6 +432,7 @@ async function fetchCostData() {
   var granularity = document.getElementById("cost-granularity").value;
   var targetIds = Array.from(selectedAccountIds);
   if (!targetIds.length) { showError("Please select at least one account"); return; }
+  var fetchStartedAt = performance.now();
 
   costFetchBtn.disabled = true;
   costLoadingEl.classList.remove("hidden");
@@ -476,6 +489,7 @@ async function fetchCostData() {
       }
       next();
     });
+    var fetchElapsedMs = Math.round(performance.now() - fetchStartedAt);
 
     // Sort results to match original account order
     var idOrder = {};
@@ -485,7 +499,16 @@ async function fetchCostData() {
     lastAccountResults = accountResults;
     lastGranularity = granularity;
     // Render summary / overview / table (need all accounts), and re-sort account charts
+    var renderStartedAt = performance.now();
     renderDashboard(accountResults, granularity);
+    var renderElapsedMs = Math.round(performance.now() - renderStartedAt);
+    console.info("[awscc] dashboard timing", {
+      accounts: accountResults.length,
+      granularity: granularity,
+      fetchElapsedMs: fetchElapsedMs,
+      renderElapsedMs: renderElapsedMs,
+      totalElapsedMs: Math.round(performance.now() - fetchStartedAt),
+    });
     setStatus("Cost data loaded (" + accountResults.length + " accounts)", "ok");
   } catch (e) {
     showError("Failed: " + e.message);
