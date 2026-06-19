@@ -1,26 +1,24 @@
 #!/usr/bin/env bash
-#MISE description="Install or uninstall the macOS launchd prefetch job"
+#MISE description="Register/update the macOS launchd prefetch job"
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+source "$ROOT_DIR/.mise/scripts/prefetch-launchd-common.sh"
 
-LABEL="com.aws-cost-dashboard.prefetch"
+LABEL="$PREFETCH_LAUNCHD_DEFAULT_LABEL"
 HOUR=""
 MINUTE=""
 TIMES=()
-UNINSTALL="false"
-RUN_NOW="false"
 
 usage() {
   cat <<'USAGE'
-Install or uninstall the macOS launchd prefetch job.
+Register or update the macOS launchd prefetch job.
 
 Usage:
-  mise run install-prefetch-launchd -- [--time HH:MM ...] [--label LABEL] [--run-now]
-  mise run install-prefetch-launchd -- [--hour H --minute M] [--label LABEL] [--run-now]
-  mise run install-prefetch-launchd -- --uninstall [--label LABEL]
+  mise run prefetch-launchd-install -- [--time HH:MM ...] [--label LABEL]
+  mise run prefetch-launchd-install -- [--hour H --minute M] [--label LABEL]
 
 Default schedule:
   11:30 and 14:30 local time
@@ -51,14 +49,6 @@ while [[ $# -gt 0 ]]; do
     --label)
       LABEL="${2:?--label requires a value}"
       shift 2
-      ;;
-    --run-now)
-      RUN_NOW="true"
-      shift
-      ;;
-    --uninstall)
-      UNINSTALL="true"
-      shift
       ;;
     -h | --help)
       usage
@@ -130,22 +120,17 @@ done
 CALENDAR_INTERVAL_XML+="
   </array>"
 
-LAUNCH_AGENTS_DIR="${HOME}/Library/LaunchAgents"
-PLIST_PATH="${LAUNCH_AGENTS_DIR}/${LABEL}.plist"
-LOG_DIR="${ROOT_DIR}/data/logs"
-MISE_BIN="$(command -v mise || true)"
+prefetch_launchd_require_launchctl
 
+MISE_BIN="$(command -v mise || true)"
 if [[ -z "$MISE_BIN" ]]; then
   echo "mise was not found in PATH. Install mise first." >&2
   exit 1
 fi
 
-if [[ "$UNINSTALL" == "true" ]]; then
-  launchctl bootout "gui/$(id -u)" "$PLIST_PATH" >/dev/null 2>&1 || true
-  rm -f "$PLIST_PATH"
-  echo "Uninstalled launchd job: $LABEL"
-  exit 0
-fi
+LAUNCH_AGENTS_DIR="${HOME}/Library/LaunchAgents"
+PLIST_PATH="$(prefetch_launchd_plist_path "$LABEL")"
+LOG_DIR="$(prefetch_launchd_log_dir)"
 
 mkdir -p "$LAUNCH_AGENTS_DIR" "$LOG_DIR"
 
@@ -180,15 +165,10 @@ PLIST
 
 plutil -lint "$PLIST_PATH" >/dev/null
 
-launchctl bootout "gui/$(id -u)" "$PLIST_PATH" >/dev/null 2>&1 || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH"
-launchctl enable "gui/$(id -u)/${LABEL}" >/dev/null 2>&1 || true
-
-if [[ "$RUN_NOW" == "true" ]]; then
-  launchctl kickstart -k "gui/$(id -u)/${LABEL}"
-fi
+launchctl bootout "$(prefetch_launchd_domain)" "$PLIST_PATH" >/dev/null 2>&1 || true
+launchctl bootstrap "$(prefetch_launchd_domain)" "$PLIST_PATH"
+launchctl enable "$(prefetch_launchd_target "$LABEL")" >/dev/null 2>&1 || true
 
 echo "Installed launchd job: $LABEL"
 echo "Schedule: daily at ${SCHEDULE_TEXT} local time"
-echo "Plist: $PLIST_PATH"
-echo "Logs: ${LOG_DIR}/prefetch-launchd.log and ${LOG_DIR}/prefetch-launchd.err"
+prefetch_launchd_print_paths "$LABEL"

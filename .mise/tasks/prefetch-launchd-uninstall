@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#MISE description="Unregister the macOS launchd prefetch job"
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT_DIR/.mise/scripts/prefetch-launchd-common.sh"
+
+LABEL="$PREFETCH_LAUNCHD_DEFAULT_LABEL"
+
+usage() {
+  cat <<'USAGE'
+Unregister the launchd prefetch job.
+
+Usage:
+  mise run prefetch-launchd-uninstall -- [--label LABEL]
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --label)
+      LABEL="${2:?--label requires a value}"
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+prefetch_launchd_require_launchctl
+
+PLIST_PATH="$(prefetch_launchd_plist_path "$LABEL")"
+launchctl bootout "$(prefetch_launchd_domain)" "$PLIST_PATH" >/dev/null 2>&1 || true
+rm -f "$PLIST_PATH"
+
+echo "Uninstalled launchd job: $LABEL"
+echo "Removed plist: $PLIST_PATH"

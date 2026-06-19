@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#MISE description="Run the registered launchd prefetch job now"
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT_DIR/.mise/scripts/prefetch-launchd-common.sh"
+
+LABEL="$PREFETCH_LAUNCHD_DEFAULT_LABEL"
+
+usage() {
+  cat <<'USAGE'
+Run the registered launchd prefetch job immediately.
+
+Usage:
+  mise run prefetch-launchd-run -- [--label LABEL]
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --label)
+      LABEL="${2:?--label requires a value}"
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+prefetch_launchd_require_launchctl
+
+if ! prefetch_launchd_is_registered "$LABEL"; then
+  prefetch_launchd_print_not_registered "$LABEL" >&2
+  exit 1
+fi
+
+launchctl kickstart -k "$(prefetch_launchd_target "$LABEL")"
+
+echo "Triggered launchd job: $LABEL"
+echo "Logs:"
+echo "  mise run prefetch-launchd-logs -- --no-follow"

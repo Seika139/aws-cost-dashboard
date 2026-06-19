@@ -17,7 +17,9 @@ mise run dev        # 開発（ホットリロード）
 mise run sso-login  # SSO ログイン（ブラウザ認証）
 mise run prefetch-cost -- --granularity BOTH --months 3  # Cost Explorer 事前取得
 mise run prefetch-dashboard-default  # default accounts を 24か月 Monthly + 4か月 Daily で事前取得
-mise run install-prefetch-launchd    # macOS launchd の事前取得ジョブを登録
+mise run prefetch-launchd-install    # macOS launchd の事前取得ジョブを登録
+mise run prefetch-launchd-status     # launchd の状態確認
+mise run prefetch-launchd-logs       # launchd のログ確認
 mise run test       # テスト
 mise run lint       # リント
 mise run format     # フォーマット
@@ -68,7 +70,7 @@ mise run format     # フォーマット
 - `src/resources.py` — EC2 / ECS / RDS / S3 / ElastiCache の棚卸し、Actual Cost 付与
 - `src/prefetch.py` — Cost Explorer cache 事前取得 CLI
 - `src/main.py` — FastAPI ルーティング。ポート 8100
-- `.mise/tasks/install-prefetch-launchd` — macOS launchd 事前取得ジョブ installer
+- `.mise/tasks/prefetch-launchd-*` — macOS launchd 事前取得ジョブの登録・削除・即時実行・状態/ログ確認
 - `static/app.js` — SPA ロジック。フェッチ（同時実行数制限）、描画（IntersectionObserver 遅延）、localStorage キャッシュ
 - `static/style.css` — ダークテーマ CSS。CSS変数ベース
 - `static/index.html` — SPA エントリポイント

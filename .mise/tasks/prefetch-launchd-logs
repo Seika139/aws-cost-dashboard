@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+#MISE description="Tail the macOS launchd prefetch job logs"
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT_DIR/.mise/scripts/prefetch-launchd-common.sh"
+
+LINES="100"
+FOLLOW="true"
+STREAM="both"
+
+usage() {
+  cat <<'USAGE'
+Show the launchd prefetch job logs.
+
+Usage:
+  mise run prefetch-launchd-logs -- [--stdout|--stderr] [--no-follow] [-n LINES]
+
+Default:
+  tail the last 100 lines from stdout and stderr, then follow both files.
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --stdout | --out)
+      STREAM="stdout"
+      shift
+      ;;
+    --stderr | --err)
+      STREAM="stderr"
+      shift
+      ;;
+    --no-follow)
+      FOLLOW="false"
+      shift
+      ;;
+    -n | --lines)
+      LINES="${2:?--lines requires a value}"
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ ! "$LINES" =~ ^[0-9]+$ ]]; then
+  echo "--lines must be a non-negative integer: $LINES" >&2
+  exit 2
+fi
+
+prefetch_launchd_prepare_logs
+
+FILES=()
+case "$STREAM" in
+  stdout)
+    FILES=("$(prefetch_launchd_stdout_log)")
+    ;;
+  stderr)
+    FILES=("$(prefetch_launchd_stderr_log)")
+    ;;
+  both)
+    FILES=("$(prefetch_launchd_stdout_log)" "$(prefetch_launchd_stderr_log)")
+    ;;
+esac
+
+if [[ "$FOLLOW" == "true" ]]; then
+  tail -n "$LINES" -f "${FILES[@]}"
+else
+  tail -n "$LINES" "${FILES[@]}"
+fi

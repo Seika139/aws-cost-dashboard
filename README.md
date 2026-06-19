@@ -201,7 +201,7 @@ mise run format     # フォーマッター
 2. Default Account Selection で普段見るアカウントを選び、`Save` を押す
 3. `mise run prefetch-cost -- --preset dashboard-default --dry-run` で対象と期間を確認する
 4. 手動で一度取得するなら `mise run prefetch-dashboard-default` を実行する
-5. 毎日自動取得するなら `mise run install-prefetch-launchd` を実行する
+5. 毎日自動取得するなら `mise run prefetch-launchd-install` を実行する
 
 ```bash
 # Config タブの Default Account Selection を対象にする定期実行向けプリセット
@@ -221,28 +221,33 @@ mise run prefetch-cost -- --accounts 123456789012,210987654321 --granularity DAI
 mise run prefetch-cost -- --preset dashboard-default --dry-run
 ```
 
-macOS で定期実行する場合は `cron` より `launchd` が安定する。installer は repo 内の `.mise/tasks/install-prefetch-launchd` にあり、以下で毎日 11:30 と 14:30（Mac のローカルタイムゾーン）のジョブを作成・登録する。
+macOS で定期実行する場合は `cron` より `launchd` が安定する。以下で毎日 11:30 と 14:30（Mac のローカルタイムゾーン）のジョブを作成・登録する。
 
 ```bash
-mise run install-prefetch-launchd
+mise run prefetch-launchd-install
 
 # 時刻を変える（複数指定可）
-mise run install-prefetch-launchd -- --time 7:30 --time 13:30
+mise run prefetch-launchd-install -- --time 7:30 --time 13:30
 
-# 登録直後に一度実行する
-mise run install-prefetch-launchd -- --run-now
+# 登録済み job をすぐ実行する
+mise run prefetch-launchd-run
+
+# 状態を見る
+mise run prefetch-launchd-status
 
 # 削除する
-mise run install-prefetch-launchd -- --uninstall
+mise run prefetch-launchd-uninstall
 ```
 
 ジョブは `mise run prefetch-cost -- --preset dashboard-default` を実行する。SSO トークンが切れている場合、prefetch はログにエラーを出して終了するため、必要に応じて `mise run sso-login` で再ログインする。ログは `data/logs/prefetch-launchd.log` と `data/logs/prefetch-launchd.err` に出力される。
 
-登録状況を確認する場合:
+ログを確認する場合:
 
 ```bash
-launchctl print gui/$(id -u)/com.aws-cost-dashboard.prefetch
-tail -f data/logs/prefetch-launchd.log
+mise run prefetch-launchd-logs
+
+# stderr だけ直近分を見る
+mise run prefetch-launchd-logs -- --stderr --no-follow
 ```
 
 ## トラブルシューティング
