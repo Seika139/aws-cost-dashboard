@@ -5,6 +5,7 @@ shellcheck = "latest"
 shfmt = "latest"
 taplo = "latest"
 uv = "latest"
+yamllint = "latest"
 
 [tasks.grant-permissions]
 description = "mise/ 内のシェルスクリプトに実行権限を付与して mise から実行できるようにする"
