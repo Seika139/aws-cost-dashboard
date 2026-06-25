@@ -95,20 +95,20 @@ Browser (app.js)
 
 ### API エンドポイント
 
-| Method | Path                     | 説明                                       |
-| ------ | ------------------------ | ------------------------------------------ |
-| GET    | `/`                      | ダッシュボード HTML                        |
-| GET    | `/api/accounts`          | 全アカウント一覧（高速版）                 |
-| GET    | `/api/accounts/detail`   | 全アカウント＋ロール情報                   |
-| GET    | `/api/cost`              | 全アカウントのコスト一括取得               |
-| GET    | `/api/cost/{account_id}` | 単一アカウントのコスト取得                 |
-| DELETE | `/api/cache`             | サーバーキャッシュ全削除                   |
-| GET    | `/api/config/default-accounts` | デフォルト選択アカウント取得       |
-| POST   | `/api/config/default-accounts` | デフォルト選択アカウント保存       |
-| DELETE | `/api/config/default-accounts` | デフォルト選択アカウント削除       |
-| GET    | `/api/sso/sessions`      | `~/.aws/config` の sso-session 一覧        |
-| POST   | `/api/sso/login`         | SSO ログイン開始（認証 URL を返す）        |
-| POST   | `/api/sso/login/poll`    | 認証完了をポーリング（トークン取得・保存） |
+| Method | Path                           | 説明                                       |
+| ------ | ------------------------------ | ------------------------------------------ |
+| GET    | `/`                            | ダッシュボード HTML                        |
+| GET    | `/api/accounts`                | 全アカウント一覧（高速版）                 |
+| GET    | `/api/accounts/detail`         | 全アカウント＋ロール情報                   |
+| GET    | `/api/cost`                    | 全アカウントのコスト一括取得               |
+| GET    | `/api/cost/{account_id}`       | 単一アカウントのコスト取得                 |
+| DELETE | `/api/cache`                   | サーバーキャッシュ全削除                   |
+| GET    | `/api/config/default-accounts` | デフォルト選択アカウント取得               |
+| POST   | `/api/config/default-accounts` | デフォルト選択アカウント保存               |
+| DELETE | `/api/config/default-accounts` | デフォルト選択アカウント削除               |
+| GET    | `/api/sso/sessions`            | `~/.aws/config` の sso-session 一覧        |
+| POST   | `/api/sso/login`               | SSO ログイン開始（認証 URL を返す）        |
+| POST   | `/api/sso/login/poll`          | 認証完了をポーリング（トークン取得・保存） |
 
 `/api/cost/{account_id}` のクエリパラメータ:
 
@@ -137,11 +137,11 @@ Cost Explorer API は 1リクエストあたり $0.01 課金されるため、2�
 
 #### 料金データのキャッシュ
 
-| レイヤー               | 保存先                 | TTL                         | キー形式 / 粒度                                                |
-| ---------------------- | ---------------------- | --------------------------- | -------------------------------------------------------------- |
-| サーバー（期間 bucket） | SQLite `data/cache.db` | 当月 bucket は 1週間、過去確定月は 90日 | `account_id + granularity + group_by + period_start/end` |
-| サーバー（旧 exact）   | SQLite `data/cache.db` | 1週間                       | `cost:{account_id}:{start}:{end}:{granularity}:{group_by}`     |
-| クライアント           | localStorage           | 1時間                       | `awscc:cost:{account_id}:{start}:{end}:{granularity}`          |
+| レイヤー                | 保存先                 | TTL                                     | キー形式 / 粒度                                            |
+| ----------------------- | ---------------------- | --------------------------------------- | ---------------------------------------------------------- |
+| サーバー（期間 bucket） | SQLite `data/cache.db` | 当月 bucket は 1週間、過去確定月は 90日 | `account_id + granularity + group_by + period_start/end`   |
+| サーバー（旧 exact）    | SQLite `data/cache.db` | 1週間                                   | `cost:{account_id}:{start}:{end}:{granularity}:{group_by}` |
+| クライアント            | localStorage           | 1時間                                   | `awscc:cost:{account_id}:{start}:{end}:{granularity}`      |
 
 `DAILY` と `MONTHLY` は AWS 側で集計方法が異なる可能性があるため、相互に合算・変換しない。`DAILY` は日単位、`MONTHLY` は月単位の bucket として個別にキャッシュする。
 
@@ -187,8 +187,8 @@ mise run dev        # 開発サーバー（ホットリロード）
 mise run sso-login  # SSO ログイン（ブラウザ認証）
 mise run prefetch-cost -- --granularity BOTH --months 3  # Cost Explorer データを事前取得
 mise run prefetch-dashboard-default  # default accounts を対象に 24か月 Monthly + 4か月 Daily を事前取得
-mise run lint       # リンター（ruff/rumdl/shfmt/shellcheck/taplo/yamllint）
-mise run format     # フォーマッター（ruff/rumdl/shfmt/taplo/yamllint）
+mise run lint       # リンター（dprint/ruff/shfmt/shellcheck/yamllint）
+mise run format     # フォーマッター（dprint/ruff/shfmt/yamllint）
 ```
 
 ### バックグラウンド事前取得
