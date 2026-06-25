@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 #MISE description="Show the macOS launchd prefetch job status"
+#MISE quiet=true
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# shellcheck disable=SC1091
 source "$ROOT_DIR/.mise/scripts/prefetch-launchd-common.sh"
 
 LABEL="$PREFETCH_LAUNCHD_DEFAULT_LABEL"
@@ -20,23 +23,23 @@ USAGE
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --label)
-      LABEL="${2:?--label requires a value}"
-      shift 2
-      ;;
-    -v | --verbose)
-      VERBOSE="true"
-      shift
-      ;;
-    -h | --help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "Unknown argument: $1" >&2
-      usage >&2
-      exit 2
-      ;;
+  --label)
+    LABEL="${2:?--label requires a value}"
+    shift 2
+    ;;
+  -v | --verbose)
+    VERBOSE="true"
+    shift
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "Unknown argument: $1" >&2
+    usage >&2
+    exit 2
+    ;;
   esac
 done
 

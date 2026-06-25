@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 #MISE description="Tail the macOS launchd prefetch job logs"
+#MISE quiet=true
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# shellcheck disable=SC1091
 source "$ROOT_DIR/.mise/scripts/prefetch-launchd-common.sh"
 
 LINES="100"
@@ -24,31 +27,31 @@ USAGE
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --stdout | --out)
-      STREAM="stdout"
-      shift
-      ;;
-    --stderr | --err)
-      STREAM="stderr"
-      shift
-      ;;
-    --no-follow)
-      FOLLOW="false"
-      shift
-      ;;
-    -n | --lines)
-      LINES="${2:?--lines requires a value}"
-      shift 2
-      ;;
-    -h | --help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "Unknown argument: $1" >&2
-      usage >&2
-      exit 2
-      ;;
+  --stdout | --out)
+    STREAM="stdout"
+    shift
+    ;;
+  --stderr | --err)
+    STREAM="stderr"
+    shift
+    ;;
+  --no-follow)
+    FOLLOW="false"
+    shift
+    ;;
+  -n | --lines)
+    LINES="${2:?--lines requires a value}"
+    shift 2
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "Unknown argument: $1" >&2
+    usage >&2
+    exit 2
+    ;;
   esac
 done
 
@@ -61,15 +64,15 @@ prefetch_launchd_prepare_logs
 
 FILES=()
 case "$STREAM" in
-  stdout)
-    FILES=("$(prefetch_launchd_stdout_log)")
-    ;;
-  stderr)
-    FILES=("$(prefetch_launchd_stderr_log)")
-    ;;
-  both)
-    FILES=("$(prefetch_launchd_stdout_log)" "$(prefetch_launchd_stderr_log)")
-    ;;
+stdout)
+  FILES=("$(prefetch_launchd_stdout_log)")
+  ;;
+stderr)
+  FILES=("$(prefetch_launchd_stderr_log)")
+  ;;
+both)
+  FILES=("$(prefetch_launchd_stdout_log)" "$(prefetch_launchd_stderr_log)")
+  ;;
 esac
 
 if [[ "$FOLLOW" == "true" ]]; then
