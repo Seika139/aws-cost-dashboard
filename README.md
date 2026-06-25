@@ -187,8 +187,8 @@ mise run dev        # 開発サーバー（ホットリロード）
 mise run sso-login  # SSO ログイン（ブラウザ認証）
 mise run prefetch-cost -- --granularity BOTH --months 3  # Cost Explorer データを事前取得
 mise run prefetch-dashboard-default  # default accounts を対象に 24か月 Monthly + 4か月 Daily を事前取得
-mise run lint       # リンター
-mise run format     # フォーマッター
+mise run lint       # リンター（ruff/rumdl/shfmt/shellcheck/taplo/yamllint）
+mise run format     # フォーマッター（ruff/rumdl/shfmt/taplo/yamllint）
 ```
 
 ### バックグラウンド事前取得

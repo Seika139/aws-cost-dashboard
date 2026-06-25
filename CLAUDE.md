@@ -7,7 +7,7 @@ AWS SSO 配下の複数アカウントのコストを可視化するローカル
 - バックエンド: Python 3.12+ / FastAPI / boto3
 - フロントエンド: Vanilla JS / Chart.js / HTML / CSS（フレームワークなし）
 - パッケージ管理: uv
-- リンター: ruff (line-length=120, select=E,F,I,W)
+- リント/フォーマット: ruff (Python, line-length=120, select=E,F,I,W) / rumdl (Markdown) / shfmt + shellcheck (shell) / taplo (TOML) / yamllint (YAML)。`mise run lint` / `mise run format` で一括実行
 
 ## コマンド
 
@@ -21,8 +21,9 @@ mise run prefetch-launchd-install    # macOS launchd の事前取得ジョブを
 mise run prefetch-launchd-status     # launchd の状態確認
 mise run prefetch-launchd-logs       # launchd のログ確認
 mise run test       # テスト
-mise run lint       # リント
-mise run format     # フォーマット
+mise run lint       # リント (ruff/rumdl/shfmt/shellcheck/taplo/yamllint)
+mise run format     # フォーマット (ruff/rumdl/shfmt/taplo/yamllint)
+mise run grant-permissions  # .mise/tasks/*.sh に実行権限を付与
 ```
 
 ## コーディングルール
@@ -70,7 +71,9 @@ mise run format     # フォーマット
 - `src/resources.py` — EC2 / ECS / RDS / S3 / ElastiCache の棚卸し、Actual Cost 付与
 - `src/prefetch.py` — Cost Explorer cache 事前取得 CLI
 - `src/main.py` — FastAPI ルーティング。ポート 8100
-- `.mise/tasks/prefetch-launchd-*` — macOS launchd 事前取得ジョブの登録・削除・即時実行・状態/ログ確認
+- `.mise/tasks/prefetch-launchd-*.sh` — macOS launchd 事前取得ジョブの登録・削除・即時実行・状態/ログ確認
+- `.mise/tasks/lint.sh` / `.mise/tasks/format.sh` — 全言語のリント・フォーマット (ruff/rumdl/shfmt/shellcheck/taplo/yamllint)
+- `.mise/common.sh` — mise タスク共通のシェルヘルパー（ANSI 色付け関数）
 - `static/app.js` — SPA ロジック。フェッチ（同時実行数制限）、描画（IntersectionObserver 遅延）、localStorage キャッシュ
 - `static/style.css` — ダークテーマ CSS。CSS変数ベース
 - `static/index.html` — SPA エントリポイント
