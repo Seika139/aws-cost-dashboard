@@ -8,8 +8,8 @@ set -euo pipefail
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 
-print_blue "Linting Markdown files"$'\n'
-rumdl check .
+print_blue "Lint Markdown / TOML / JSON with dprint"$'\n'
+dprint check
 
 print_blue "Lint Python files with ruff"$'\n'
 uv run ruff check src/ tests/ .mise/
@@ -25,9 +25,6 @@ if [ "${shellcheck_files[0]+_}" ]; then
 else
   print_red "No shell scripts found; skipping shellcheck."$'\n'
 fi
-
-print_blue "Lint toml with taplo"$'\n'
-taplo fmt --check --diff
 
 print_blue "Lint YAML files with yamllint"$'\n'
 yamllint .

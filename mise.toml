@@ -1,9 +1,8 @@
 [tools]
+dprint = "latest"
 python = "3.12"
-rumdl = "latest"
 shellcheck = "latest"
 shfmt = "latest"
-taplo = "latest"
 uv = "latest"
 yamllint = "latest"
 

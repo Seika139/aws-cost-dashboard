@@ -8,8 +8,8 @@ set -euo pipefail
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/common.sh"
 
-print_blue "Formatting Markdown files"$'\n'
-rumdl check --fix .
+print_blue "Format Markdown / TOML / JSON with dprint"$'\n'
+dprint fmt
 
 print_blue "Format Python files with ruff"$'\n'
 uv run ruff format src/ tests/ .mise/
@@ -17,9 +17,6 @@ uv run ruff check --fix src/ tests/ .mise/
 
 print_blue "Format shell scripts with shfmt"$'\n'
 shfmt -w .mise/common.sh .mise/tasks/*.sh .mise/scripts/*.sh
-
-print_blue "Format toml with taplo"$'\n'
-taplo fmt
 
 print_blue "Format YAML files with yamllint"$'\n'
 yamllint -f parsable . | while IFS= read -r line; do
