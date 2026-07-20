@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "AWS multi-account cost dashboard"
 requires-python = ">=3.12"
 dependencies = [
-  "boto3>=1.43.40",
+  "boto3>=1.43.46",
   "fastapi>=0.139.0",
-  "uvicorn[standard]>=0.50.0",
+  "uvicorn[standard]>=0.51.0",
 ]
 
 [tool.ruff]
@@ -20,4 +20,4 @@ select = ["E", "F", "I", "W"]
 testpaths = ["tests"]
 
 [dependency-groups]
-dev = ["pytest>=9.1.1", "ruff>=0.15.20"]
+dev = ["pytest>=9.1.1", "ruff>=0.15.21"]
